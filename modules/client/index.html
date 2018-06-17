@@ -1,0 +1,670 @@
+﻿<div id="signDiv" style = "margin-top:10px;margin-left:10px;">
+    <div>   
+    <p style="font-weight:bold;font-size:20px;">一夜狼人杀</p>
+    </div>   
+    <div>   
+	名称: <input id="signDiv-username" type="text"></input><br>
+    </div>
+	<button id="signDiv-signIn" style = "margin-top:9px;">登 陆</button>
+    </div>
+</div>
+
+
+<div id="gameDiv" style="display:none;">
+	<canvas id="ctx" width="900" height="600"></canvas>
+	<h2>当前在线玩家：</h2>
+	<ul id="players">
+	</ul>
+	</ul>
+</div>
+<script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
+<script>
+	var poolSelect = false;
+	var mouseX = 0;
+	var mouseY = 0;
+	var myTimer = 3600;
+	var userR = 60;
+	var socket = io();
+	var ctx = document.getElementById("ctx").getContext("2d");
+	var ctx2 = document.getElementById("ctx");
+	var onlinePlayersInfo = [];
+	ctx2.onselectstart = function () { return false; }
+	ctx2.oncontextmenu = function () { return false; }
+	var onlinePlayers = document.getElementById('players');
+	var signDivSignIn = document.getElementById('signDiv-signIn');
+	var signDivUsername = document.getElementById('signDiv-username');
+	signDivSignIn.onclick = function(){
+		socket.emit('signIn',{username:signDivUsername.value});
+	}
+	var localText = ['', '' ,'' ,'' ,'' ,'' ,'' ,''];
+	var offline = [];
+	var addMessage = function(s) {
+		localText[7] = localText[6];
+		localText[6] = localText[5];
+		localText[5] = localText[4];
+		localText[4] = localText[3];
+		localText[3] = localText[2];
+		localText[2] = localText[1];
+		localText[1] = localText[0];
+		localText[0] = s;
+	}
+    var dist2 = function(x, y, a, b) {
+        return (x - a) * (x - a) + (y - b) * (y - b);
+    };
+    var inRect = function(ax, ay, bx, by, x, y) {
+        return ax <= x && x <= ax + bx && ay <= y && y <= ay + by;
+    };
+    var translate = function(a) {
+		if (a == 'villager') return '村  民';
+		if (a == 'prophet') return '预言家';
+		if (a == 'disturber') return '捣蛋鬼';
+		if (a == 'thief') return '强  盗';
+		if (a == 'wolf') return '狼  人';
+		return '未  知';
+	};
+    var translate2 = function(a) {
+		if (a == 'villager') return '村民';
+		if (a == 'prophet') return '预言家';
+		if (a == 'disturber') return '捣蛋鬼';
+		if (a == 'thief') return '强盗';
+		if (a == 'wolf') return '狼人';
+		return '未知';
+	};
+	
+    var playersInfoUpdate = function() {
+        onlinePlayers.innerHTML = "";
+		for (var i in onlinePlayersInfo) {
+			onlinePlayers.innerHTML += '<li>' + onlinePlayersInfo[i].name + '</li>';
+		}
+    };
+
+	socket.on('signInResponse',function(data){
+		//alert(data.id + " + " + data.success);
+		if (data.success){
+			self.id = data.id;
+			self.name = signDivUsername.value;
+			self.gameStatus = data.gameStatus;
+			//alert(self.gameStatus);
+			signDiv.style.display = 'none';
+			gameDiv.style.display = 'inline-block';
+            		socket.emit('updatePlayer', [{id : self.id, who: 'unknown', name : self.name}]);
+		} else
+			alert(data.info);
+	});
+	/*
+	nightTime: 30,
+	dayTime: 900,
+	voteTime: 90
+	*/
+	
+	socket.on('reconnect',function(data) {
+		poolChar = ['未  知', '未  知', '未  知'];
+		myTimer = data.timer;
+		self.gameStatus = data.gameStatus;
+		self.character = data.character;
+		console.log(data.character + " " + translate(data.character));
+		addMessage('游戏开始');
+		for (var i in onlinePlayersInfo) {
+			if (self.name == onlinePlayersInfo[i].name)
+				onlinePlayersInfo[i].character = data.character;
+		}
+		if (data.character == 'wolf' || data.character == 'villager')
+			socket.emit(data.character, {});
+	});
+	
+	socket.on('night',function(data) {
+		poolChar = ['未  知', '未  知', '未  知'];
+		myTimer = 30;
+		self.gameStatus = data.gameStatus;
+		if (data.gameStatus == 1) {
+			self.character = data.character;
+			console.log(data.character + " " + translate(data.character));
+			addMessage('游戏开始');
+			for (var i in onlinePlayersInfo) {
+				if (self.name == onlinePlayersInfo[i].name)
+					onlinePlayersInfo[i].character = data.character;
+			}
+			if (data.character == 'wolf' || data.character == 'villager')
+				socket.emit(data.character, {});
+		} else {
+			// == 2
+		}
+	});
+	socket.on('voting',function(data) {
+		myTimer = 90;
+		self.gameStatus = data.gameStatus;
+	});
+	socket.on('day',function(data) {
+		myTimer = 900;
+		self.gameStatus = data.gameStatus;
+		/*if (data.gameStatus == 1) {
+			self.character = data.character;
+			console.log(data.character + " " + translate(data.character));
+			addMessage('游戏开始');
+			for (var i in onlinePlayersInfo) {
+				if (self.id == onlinePlayersInfo[i].id)
+					onlinePlayersInfo[i].character = data.character;
+			}
+			if (data.character == 'wolf' || data.character == 'villager')
+				socket.emit(data.character, {});
+		} else {
+			// == 2
+		}*/
+	});
+	socket.on('updatePlayer',function(data){
+		console.log("update");
+		for (var i = 0; i < data.length; i++) {
+			if (!onlinePlayersInfo[data[i].name] || offline[data[i].name]) {
+				addMessage(data[i].name + '来了');
+				offline[data.name] = 0;
+			}
+			onlinePlayersInfo[data[i].name] = data[i];
+			onlinePlayersInfo[data[i].name].selected = false;
+		}
+		playersInfoUpdate();
+	});
+	socket.on('remove',function(data){
+		addMessage(data.name + '跑了');
+		offline[data.name] = 1;
+		if (self.gameStatus == 0 || onlinePlayersInfo[data.name].job != 'player')
+			delete onlinePlayersInfo[data.name];
+        playersInfoUpdate();
+		//ctx.clearRect(0, 0, 600, 5000);
+	});
+	var poolChar = ['未  知', '未  知', '未  知'];
+	socket.on('prophet',function(data){
+		
+		console.log('yuyanjia');
+		if (data.length == 1)
+			onlinePlayersInfo[data[0].name].character = data[0].character;
+		else {
+			for (var i = 0; i < data.length; i++) {
+				console.log(translate(data[i]) + ' pool');
+				poolChar[i] = translate(data[i]);
+			}
+		}
+	});
+	socket.on('result',function(data){
+		self.gameStatus = 0;
+		myTimer = 3600;
+		for (var i in data.players) {
+			var a = "，投给" + data.players[i].vote;
+			if (data.players[i].vote == '') a = "，未投票";
+			addMessage(data.players[i].name + "，" + translate2(data.players[i].originalCharacter) + "，" + translate2(data.players[i].finalCharacter) + a);
+		}
+		if (data.winner == 'wolfs')
+			addMessage('狼人胜利');
+		else
+			addMessage('平民胜利');
+	});
+	socket.on('chat',function(data){
+		addMessage(data.fromWho + '怀疑' + data.toWho + '是狼人');
+	});
+	socket.on('thief',function(data){
+		for (var i in onlinePlayersInfo) 
+			onlinePlayersInfo[data.name].character = 'thief';
+		onlinePlayersInfo[self.name].character = data.character;
+	});
+	socket.on('wolf',function(data){
+		for (var i = 0; i < data.length; i++) {
+			//alert("?" + self.id + ' ' + data[i]);
+			onlinePlayersInfo[data[i]].character = 'wolf';
+		}
+	});
+	socket.on('failedAct',function(data){
+		addMessage(data.info);
+	});
+	socket.on('succAct',function(data){
+		addMessage(data.info);
+	});
+	setInterval(function(){
+		myTimer -= 1;
+	},1000);
+	setInterval(function(){
+		if (!self.id)
+			return;
+		if (self.gameStatus % 2 == 0)
+			ctx.fillStyle = "#333333";
+		else
+			ctx.fillStyle = "#222222";
+		ctx.fillRect(0,0, 900,600);
+		var counter = 0;
+		var times = 0;
+		for (var i in onlinePlayersInfo) 
+			if (onlinePlayersInfo[i].job == 'player')
+				counter++;
+		for (var i in onlinePlayersInfo) {
+			if (onlinePlayersInfo[i].job != 'player') continue;
+			var angle = Math.PI * 2.0 / counter * times;
+			times++;
+			//alert(angle + " " + onlinePlayersInfo.length);
+			ctx.fillStyle = "#ffffff";
+			
+			ctx.beginPath();
+			ctx.arc(300 + 200 * Math.sin(angle), 300 + 200 * Math.cos(angle), userR, 0, Math.PI * 2, true);
+			if (onlinePlayersInfo[i].name == self.name) {
+				ctx.lineWidth = 5;
+				ctx.strokeStyle = "yellow";
+			}
+			else if (onlinePlayersInfo[i].selected == true) {
+				ctx.lineWidth = 15;
+				ctx.strokeStyle = "red";
+			}
+			else {
+				ctx.lineWidth = 5;
+				ctx.strokeStyle = "green";
+			}
+				
+			ctx.fill();
+			ctx.stroke();//画空心圆
+			ctx.closePath();
+			
+			
+			ctx.lineWidth = 1;
+			ctx.font = "12px Courier New";
+			ctx.strokeStyle = "#111111";
+			ctx.textAlign="center";
+			ctx.strokeText(onlinePlayersInfo[i].name, 300 + 200 * Math.sin(angle), 300 + 200 * Math.cos(angle))	;
+			
+			if (self.gameStatus == 0 && onlinePlayersInfo[i].ready) {
+				ctx.strokeText('已 准 备', 300 + 200 * Math.sin(angle), 300 + 15 + 200 * Math.cos(angle));
+			}
+			if (self.gameStatus != 0) {
+				ctx.strokeText(translate(onlinePlayersInfo[i].character), 300 + 200 * Math.sin(angle), 300 + 15 + 200 * Math.cos(angle));
+			}
+			
+			ctx.beginPath();
+			ctx.moveTo(600,0);
+			ctx.lineTo(600,600);
+			ctx.strokeStyle="white";
+			ctx.stroke();
+			ctx.closePath();
+		}
+		if (self.character == 'prophet' && self.gameStatus > 0) {
+			ctx.beginPath(); 
+			if (self.character == 'prophet')
+				ctx.fillStyle="#eeeeee";
+			else
+				ctx.fillStyle="#999999";
+			ctx.fillRect(30,20,66,66);/*绘制一个矩形，前两个参数决定开始位置，后两个分别是矩形的宽和高*/
+			ctx.closePath(); 
+			if (poolSelect) {
+				ctx.beginPath(); 
+				ctx.lineWidth = 3;
+				ctx.strokeStyle="#993333";
+				ctx.strokeRect(30,20,66,66);/*绘制一个矩形，前两个参数决定开始位置，后两个分别是矩形的宽和高*/
+				ctx.closePath(); 
+			}
+			
+			ctx.lineWidth = 1;
+			ctx.strokeStyle = "#333333";	
+			ctx.textAlign="center";
+			ctx.strokeText(poolChar[0], 63, 33);
+			ctx.strokeText(poolChar[1], 63, 54);
+			ctx.strokeText(poolChar[2], 63, 75);
+		}
+		
+		ctx.lineWidth = 1;
+		ctx.font = "12px Courier New";
+		ctx.strokeStyle = "#eeeeee";
+		ctx.textAlign="center";
+		
+	//	alert(self.gameStatus);
+		ctx.strokeText('倒计时：' + myTimer, 754,61);
+		if (self.gameStatus == 0)
+			ctx.strokeText('游戏未开始', 754,101);
+		if (self.gameStatus == 1)
+			ctx.strokeText('夜晚，功能角色执行功能', 754,101);
+		if (self.gameStatus == 2)
+			ctx.strokeText('白天，自由讨论', 754, 101);
+		if (gameStatus == 3)
+			ctx.strokeText('投票阶段', 754, 101);
+		ctx.beginPath(); 
+		ctx.strokeStyle="#eeeeee";/*设置填充颜色*/ 
+		ctx.strokeRect(646,360,201,179);/*绘制一个矩形，前两个参数决定开始位置，后两个分别是矩形的宽和高*/
+		ctx.closePath(); 
+		
+		ctx.strokeStyle = "#eeeeee";
+		ctx.textAlign = "left";
+		ctx.strokeText(localText[0], 666, 376);
+		ctx.strokeText(localText[1], 666, 396);
+		ctx.strokeText(localText[2], 666, 416);
+		ctx.strokeText(localText[3], 666, 436);
+		ctx.strokeText(localText[4], 666, 456);
+		ctx.strokeText(localText[5], 666, 476);
+		ctx.strokeText(localText[6], 666, 496);
+		ctx.strokeText(localText[7], 666, 516);
+		
+		//console.log("mouse " + mouseX + ' ' + mouseY);
+		ctx.beginPath(); 
+		if (self.gameStatus >= 3)
+			ctx.fillStyle="#eeeeee";
+		else
+			ctx.fillStyle="#999999";
+		ctx.fillRect(705,120,99,39);/*绘制一个矩形，前两个参数决定开始位置，后两个分别是矩形的宽和高*/
+		ctx.closePath(); 
+		ctx.lineWidth = 1;
+		ctx.font = "12px Courier New";
+		if (inRect(705,120,99,39, mouseX, mouseY) && self.gameStatus >= 3) {
+			ctx.strokeStyle = "#661111";
+		} else 
+			ctx.strokeStyle = "#111111";
+		ctx.textAlign="center";
+		ctx.strokeText('投   票', 753,141);
+		
+		ctx.beginPath(); 
+		if (self.character == 'prophet' && self.gameStatus == 1)
+			ctx.fillStyle="#eeeeee";
+		else
+			ctx.fillStyle="#999999";
+		ctx.fillRect(705,180,99,39);/*绘制一个矩形，前两个参数决定开始位置，后两个分别是矩形的宽和高*/
+		ctx.closePath(); 
+		ctx.lineWidth = 1;
+		ctx.font = "12px Courier New";
+		if (inRect(705,180,99,39, mouseX, mouseY) && self.character == 'prophet' && self.gameStatus == 1) {
+			ctx.strokeStyle = "#661111";
+		} else 
+			ctx.strokeStyle = "#111111";
+		ctx.textAlign="center";
+		ctx.strokeText('查   验', 753,201);
+		
+		ctx.beginPath();
+		if (self.character == 'thief' && self.gameStatus == 1)
+			ctx.fillStyle="#eeeeee";
+		else
+			ctx.fillStyle="#999999";
+		ctx.fillRect(705,240,99,39);/*绘制一个矩形，前两个参数决定开始位置，后两个分别是矩形的宽和高*/
+		ctx.closePath(); 
+		ctx.lineWidth = 1;
+		ctx.font = "12px Courier New";
+		if (inRect(705,240,99,39, mouseX, mouseY) && self.character == 'thief' && self.gameStatus == 1) {
+			ctx.strokeStyle = "#661111";
+		} else 
+			ctx.strokeStyle = "#111111";
+		ctx.textAlign="center";
+		ctx.strokeText('盗   取', 753,261);
+		
+		ctx.beginPath(); 
+		if (self.character == 'disturber' && self.gameStatus == 1)
+			ctx.fillStyle="#eeeeee";
+		else
+			ctx.fillStyle="#999999";
+		ctx.fillRect(705,300,99,39);/*绘制一个矩形，前两个参数决定开始位置，后两个分别是矩形的宽和高*/
+		ctx.closePath(); 
+		ctx.lineWidth = 1;
+		ctx.font = "12px Courier New";
+		if (inRect(705,300,99,39, mouseX, mouseY) && self.character == 'disturber' && self.gameStatus == 1) {
+			ctx.strokeStyle = "#661111";
+		} else 
+			ctx.strokeStyle = "#111111";
+		ctx.textAlign="center";
+		ctx.strokeText('交   换', 753,321);
+		
+		
+		ctx.beginPath(); 
+		if (self.gameStatus == 0)
+			ctx.fillStyle="#eeeeee";
+		else
+			ctx.fillStyle="#999999";
+		ctx.fillRect(705,550,99,39);/*绘制一个矩形，前两个参数决定开始位置，后两个分别是矩形的宽和高*/
+		ctx.closePath(); 
+		ctx.lineWidth = 1;
+		ctx.font = "12px Courier New";
+		if (inRect(705,550,99,39, mouseX, mouseY) && self.gameStatus == 0) {
+			ctx.strokeStyle = "#661111";
+		} else 
+			ctx.strokeStyle = "#111111";
+		ctx.textAlign="center";	
+		ctx.strokeText('准   备', 753,571);
+		
+		if (self.gameStatus >= 3) {
+			ctx.beginPath(); 
+			ctx.fillStyle="#eeeeee";
+			ctx.fillRect(495,550,99,39);
+			ctx.closePath(); 
+			ctx.lineWidth = 1;
+			ctx.font = "12px Courier New";
+			if (inRect(495,550,99,39, mouseX, mouseY)) {
+				ctx.strokeStyle = "#661111";
+			} else 
+				ctx.strokeStyle = "#111111";
+			ctx.textAlign="center";	
+			ctx.strokeText('弃   票', 538,571);
+		}
+				
+
+		document.oncontextmenu = function(event) {
+			var offsets = ctx2.getBoundingClientRect();
+			clickedX = event.clientX - offsets.left;
+			clickedY = event.clientY - offsets.top;
+			var times = 0;
+			var counter2 = 0;
+			for (var i in onlinePlayersInfo)
+				if (onlinePlayersInfo[i].job == 'player')
+					counter2++;
+			for (var i in onlinePlayersInfo) {
+				if (onlinePlayersInfo[i].job != 'player') continue;
+				var angle = Math.PI * 2.0 / counter2 * times;
+				times++;
+				//alert(angle + " " + onlinePlayersInfo.length);
+				if (dist2(300 + 200 * Math.sin(angle), 300 + 200 * Math.cos(angle), clickedX, clickedY) <= userR * userR && onlinePlayersInfo[i].name != self.name) {
+					onlinePlayersInfo[i].selected = (!onlinePlayersInfo[i].selected);
+					socket.emit('chat', {fromWho : self.name, toWho : onlinePlayersInfo[i].name});
+					//alert("!" + i);
+				}
+				if (dist2(300 + 200 * Math.sin(angle), 300 + 200 * Math.cos(angle), clickedX, clickedY) <= userR * userR && onlinePlayersInfo[i].name == self.name) {
+					socket.emit('chat', {fromWho : self.name, toWho : onlinePlayersInfo[i].name});
+					//alert("!" + i);
+				}
+			}
+		}
+		
+		document.onmousedown = function(event){
+			var offsets = ctx2.getBoundingClientRect();
+			clickedX = event.clientX - offsets.left;
+			clickedY = event.clientY - offsets.top;
+			
+			var counter2 = 0;
+			for (var i in onlinePlayersInfo)
+				if (onlinePlayersInfo[i].job == 'player')
+					counter2++;
+			var times = 0;
+			for (var i in onlinePlayersInfo) {
+				if (onlinePlayersInfo[i].job != 'player') continue;
+				var angle = Math.PI * 2.0 / counter2 * times;
+				times++;
+				//alert(angle + " " + onlinePlayersInfo.length);
+				if (dist2(300 + 200 * Math.sin(angle), 300 + 200 * Math.cos(angle), clickedX, clickedY) <= userR * userR && onlinePlayersInfo[i].name != self.name) {
+					onlinePlayersInfo[i].selected = (!onlinePlayersInfo[i].selected);
+					//alert("!" + i);
+				}
+			}
+			
+			if (inRect(705,120,99,39, clickedX, clickedY) && self.gameStatus == 3) {
+				var counter = 0;
+				var who;
+				for (var i in onlinePlayersInfo)
+					if (onlinePlayersInfo[i].selected) {
+						counter++;
+						who = i;
+						onlinePlayersInfo[i].selected = false;
+					}
+				if (counter == 1)
+					socket.emit('vote', onlinePlayersInfo[who]);
+				else
+					addMessage('人数不正确');
+			}
+			if (inRect(705,180,99,39, clickedX, clickedY)) {
+				var counter = 0;
+				var who;
+				for (var i in onlinePlayersInfo)
+					if (onlinePlayersInfo[i].selected) {
+						counter++;
+						who = i;
+						onlinePlayersInfo[i].selected = false;
+					}
+				if (counter == 1 && !poolSelect)
+					socket.emit('prophet', {op:'player', info:onlinePlayersInfo[who]});
+				else if (poolSelect && counter == 0)
+					socket.emit('prophet', {op:'pool'});
+				else
+					addMessage('人数不正确');
+				poolSelect = false;
+			}
+			if (inRect(705,240,99,39, clickedX, clickedY)) {
+				var counter = 0;
+				var who;
+				for (var i in onlinePlayersInfo)
+					if (onlinePlayersInfo[i].selected) {
+						counter++;
+						who = i;
+						onlinePlayersInfo[i].selected = false;
+					}
+				if (counter == 1)
+					socket.emit('thief', onlinePlayersInfo[who]);
+				else
+					addMessage('人数不正确');
+			}
+			if (inRect(705,300,99,39, clickedX, clickedY)) {
+				var counter = 0;
+				var who, who2;
+				for (var i in onlinePlayersInfo)
+					if (onlinePlayersInfo[i].selected) {
+						onlinePlayersInfo[i].selected = false;
+						counter++;
+						if (counter == 1)
+							who = onlinePlayersInfo[i].name;
+						else who2 = onlinePlayersInfo[i].name;
+					}
+				if (counter == 2)
+					socket.emit('disturber', {name1 : who, name2 : who2});
+				else
+					addMessage('人数不正确');
+			}
+			if (inRect(705,550,99,39, clickedX, clickedY)) {
+				console.log('ready');
+            	socket.emit('ready', [{id : self.id, name : self.name}]);
+			}
+			if (self.character == 'prophet') {
+				ctx.beginPath(); 
+				if (self.character == 'prophet')
+					ctx.fillStyle="#eeeeee";
+				else
+					ctx.fillStyle="#999999";
+				if (inRect(30,20,66,66, clickedX, clickedY)) {
+					poolSelect = !poolSelect;
+				}
+			}
+			if (inRect(495,550,99,39, clickedX, clickedY) && self.gameStatus == 3) 
+				socket.emit('vote', {name:''}); 
+		}
+
+		document.addEventListener('touchstart', function(event){
+			if (event.targetTouches.length == 1)
+				var touch = event.targetTouches[0];
+			var offsets = ctx2.getBoundingClientRect();
+			clickedX = touch.pageX - offsets.left;
+			clickedY = touch.pageY - offsets.top;
+			//alert(touch.pageX + ' ' + touch.pageY + ' ' + clickedX + ' ' + clickedY);
+			var counter2 = 0;
+			for (var i in onlinePlayersInfo)
+				if (onlinePlayersInfo[i].job == 'player')
+					counter2++;
+			var times = 0;
+			for (var i in onlinePlayersInfo) {
+				if (onlinePlayersInfo[i].job != 'player') continue;
+				var angle = Math.PI * 2.0 / counter2 * times;
+				times++;
+				//alert(angle + " " + onlinePlayersInfo.length);
+				if (dist2(300 + 200 * Math.sin(angle), 300 + 200 * Math.cos(angle), clickedX, clickedY) <= userR * userR && onlinePlayersInfo[i].name != self.name) {
+					onlinePlayersInfo[i].selected = (!onlinePlayersInfo[i].selected);
+					//alert("!" + i);
+				}
+			}
+			
+			if (inRect(705,120,99,39, clickedX, clickedY) && self.gameStatus == 3) {
+				var counter = 0;
+				var who;
+				for (var i in onlinePlayersInfo)
+					if (onlinePlayersInfo[i].selected) {
+						counter++;
+						who = i;
+						onlinePlayersInfo[i].selected = false;
+					}
+				if (counter == 1)
+					socket.emit('vote', onlinePlayersInfo[who]);
+				else
+					addMessage('人数不正确');
+			}
+			if (inRect(705,180,99,39, clickedX, clickedY)) {
+				var counter = 0;
+				var who;
+				for (var i in onlinePlayersInfo)
+					if (onlinePlayersInfo[i].selected) {
+						counter++;
+						who = i;
+						onlinePlayersInfo[i].selected = false;
+					}
+				if (counter == 1 && !poolSelect)
+					socket.emit('prophet', {op:'player', info:onlinePlayersInfo[who]});
+				else if (poolSelect && counter == 0)
+					socket.emit('prophet', {op:'pool'});
+				else
+					addMessage('人数不正确');
+				poolSelect = false;
+			}
+			if (inRect(705,240,99,39, clickedX, clickedY)) {
+				var counter = 0;
+				var who;
+				for (var i in onlinePlayersInfo)
+					if (onlinePlayersInfo[i].selected) {
+						counter++;
+						who = i;
+						onlinePlayersInfo[i].selected = false;
+					}
+				if (counter == 1)
+					socket.emit('thief', onlinePlayersInfo[who]);
+				else
+					addMessage('人数不正确');
+			}
+			if (inRect(705,300,99,39, clickedX, clickedY)) {
+				var counter = 0;
+				var who, who2;
+				for (var i in onlinePlayersInfo)
+					if (onlinePlayersInfo[i].selected) {
+						onlinePlayersInfo[i].selected = false;
+						counter++;
+						if (counter == 1)
+							who = onlinePlayersInfo[i].name;
+						else who2 = onlinePlayersInfo[i].name;
+					}
+				if (counter == 2)
+					socket.emit('disturber', {name1 : who, name2 : who2});
+				else
+					addMessage('人数不正确');
+			}
+			if (inRect(705,550,99,39, clickedX, clickedY)) {
+				console.log('ready');
+            	socket.emit('ready', [{id : self.id, name : self.name}]);
+			}
+			if (self.character == 'prophet') {
+				ctx.beginPath(); 
+				if (self.character == 'prophet')
+					ctx.fillStyle="#eeeeee";
+				else
+					ctx.fillStyle="#999999";
+				if (inRect(30,20,66,66, clickedX, clickedY)) {
+					poolSelect = !poolSelect;
+				}
+			}
+			if (inRect(495,550,99,39, clickedX, clickedY) && self.gameStatus == 3) 
+				socket.emit('vote', {name:''}); 
+		}, false);
+
+		document.onmousemove = function(event){
+			var offsets = ctx2.getBoundingClientRect();
+			mouseX = event.clientX - offsets.left;
+			mouseY = event.clientY - offsets.top;
+		}
+	},20);
+</script>
